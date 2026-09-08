@@ -1,44 +1,67 @@
-<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>Orchestra Excerpt Player v1.0</title></head><body><h1>Orchestra Excerpt Player v1.0</h1><p>GitHub Pages版。YouTube API・URL共有・LocalStorage対応の土台。</p><script src='https://www.youtube.com/iframe_api'></script></body></html><!doctype html>
+<!doctype html>
 <html lang="ja">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Orchestra Excerpt Player</title>
+<title>Orchestra Excerpt Player v0.2</title>
 <style>
 body{font-family:system-ui,sans-serif;max-width:1000px;margin:auto;padding:12px}
 .card{border:1px solid #ccc;border-radius:8px;padding:12px;margin:10px 0}
 input,button{padding:8px;margin:4px}
 input[type=text]{width:100%;box-sizing:border-box}
+.row{display:flex;gap:8px;flex-wrap:wrap}
 .item{border:1px solid #ddd;padding:8px;margin:6px 0}
+#now{font-size:1.2em;font-weight:bold}
 </style>
 </head>
 <body>
-<h1>Orchestra Excerpt Player</h1>
+<h1>Orchestra Excerpt Player v0.2</h1>
 
 <div class="card">
-<input id="url" type="text" placeholder="YouTube URL">
-<input id="start" type="text" placeholder="開始 mm:ss">
-<input id="end" type="text" placeholder="終了 mm:ss">
-<button onclick="addItem()">追加</button>
+<h3>再生設定</h3>
+<label>前余白(秒)<input id="padBefore" type="number" value="0"></label>
+<label>後余白(秒)<input id="padAfter" type="number" value="0"></label>
 </div>
 
 <div class="card">
+<h3>課題追加</h3>
+<input id="composer" type="text" placeholder="作曲者">
+<input id="title" type="text" placeholder="曲名">
+<input id="url" type="text" placeholder="YouTube URL">
+<div class="row">
+<input id="start" type="text" placeholder="開始 mm:ss / hh:mm:ss">
+<input id="end" type="text" placeholder="終了 mm:ss / hh:mm:ss">
+<button onclick="addItem()">追加</button>
+</div>
+</div>
+
+<div class="card">
+<h3>課題一覧</h3>
 <div id="list"></div>
 </div>
 
 <div class="card">
-<button onclick="playSelected()">再生</button>
+<h3>再生</h3>
+<div id="now">未再生</div>
+<div class="row">
+<button onclick="prevItem()">◀ 前</button>
+<button onclick="playCurrent()">▶ 再生</button>
+<button onclick="pauseCurrent()">⏸ 停止</button>
+<button onclick="nextItem()">次 ▶</button>
+<button onclick="playAll()">全部再生</button>
+</div>
 <div id="player"></div>
 </div>
 
 <script src="https://www.youtube.com/iframe_api"></script>
 <script>
 let items=[];
-let selected=0;
+let current=0;
+let queue=false;
 let player=null;
 
 function parseTime(t){
- const p=t.split(":").map(Number);
+ const p=t.trim().split(":").map(Number);
  if(p.length===1) return p[0]||0;
  if(p.length===2) return p[0]*60+p[1];
  if(p.length===3) return p[0]*3600+p[1]*60+p[2];
@@ -47,45 +70,92 @@ function parseTime(t){
 
 function getVideoId(u){
  try{
-   const x=new URL(u);
-   if(x.hostname==="youtu.be") return x.pathname.slice(1);
-   return x.searchParams.get("v");
+  const x=new URL(u);
+  if(x.hostname==="youtu.be") return x.pathname.slice(1);
+  return x.searchParams.get("v");
  }catch(e){return "";}
 }
 
 function addItem(){
  items.push({
-  url:url.value,
-  videoId:getVideoId(url.value),
-  start:parseTime(start.value),
-  end:parseTime(end.value)
+   composer:composer.value,
+   title:title.value,
+   videoId:getVideoId(url.value),
+   start:parseTime(start.value),
+   end:parseTime(end.value),
+   startText:start.value,
+   endText:end.value
  });
  render();
 }
 
 function render(){
- list.innerHTML=items.map((x,i)=>
-  `<div class="item">
-   ${x.url}<br>
-   ${x.start}s - ${x.end}s
-   <button onclick="selected=${i}">選択</button>
-  </div>`).join("");
+ list.innerHTML=items.map((x,i)=>`
+ <div class="item">
+ <b>${x.composer}</b><br>
+ ${x.title}<br>
+ ${x.startText} - ${x.endText}<br>
+ <button onclick="current=${i};playCurrent()">再生</button>
+ </div>`).join("");
 }
 
-function playSelected(){
- if(!player || !items[selected]) return;
- const it=items[selected];
+function loadCurrent(){
+ if(!player || !items[current]) return;
+
+ const it=items[current];
+ now.innerHTML=`${it.composer}<br>${it.title}`;
+
+ const before=Number(padBefore.value||0);
+ const after=Number(padAfter.value||0);
+
  player.loadVideoById({
    videoId:it.videoId,
-   startSeconds:it.start,
-   endSeconds:it.end
+   startSeconds:Math.max(0,it.start-before),
+   endSeconds:it.end+after
  });
 }
 
+function playCurrent(){ queue=false; loadCurrent(); }
+function pauseCurrent(){ if(player) player.pauseVideo(); }
+
+function prevItem(){
+ if(current>0){
+   current--;
+   loadCurrent();
+ }
+}
+
+function nextItem(){
+ if(current<items.length-1){
+   current++;
+   loadCurrent();
+ }
+}
+
+function playAll(){
+ if(items.length===0) return;
+ current=0;
+ queue=true;
+ loadCurrent();
+}
+
 function onYouTubeIframeAPIReady(){
- player=new YT.Player('player',{
-   height:'360',
-   width:'640'
+ player=new YT.Player("player",{
+   height:"360",
+   width:"640",
+   playerVars:{playsinline:1},
+   events:{
+     onStateChange:function(e){
+       if(e.data===YT.PlayerState.ENDED && queue){
+         current++;
+         if(current<items.length){
+           loadCurrent();
+         }else{
+           queue=false;
+         }
+       }
+     }
+   }
  });
 }
 </script>
