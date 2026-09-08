@@ -3,45 +3,45 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Orchestra Excerpt Player v0.2</title>
+<title>Orchestra Excerpt Player v0.3</title>
 <style>
-body{font-family:system-ui,sans-serif;max-width:1000px;margin:auto;padding:12px}
+body{font-family:system-ui,sans-serif;max-width:1100px;margin:auto;padding:12px}
 .card{border:1px solid #ccc;border-radius:8px;padding:12px;margin:10px 0}
-input,button{padding:8px;margin:4px}
-input[type=text]{width:100%;box-sizing:border-box}
+input,button,textarea{padding:8px;margin:4px}
+input[type=text],textarea{width:100%;box-sizing:border-box}
 .row{display:flex;gap:8px;flex-wrap:wrap}
 .item{border:1px solid #ddd;padding:8px;margin:6px 0}
 #now{font-size:1.2em;font-weight:bold}
 </style>
 </head>
 <body>
-<h1>Orchestra Excerpt Player v0.2</h1>
+<h1>Orchestra Excerpt Player v0.3</h1>
 
 <div class="card">
-<h3>再生設定</h3>
+<h3>保存・共有</h3>
+<button onclick="generateShare()">共有URL生成</button>
+<textarea id="shareUrl" rows="3"></textarea>
+</div>
+
+<div class="card">
 <label>前余白(秒)<input id="padBefore" type="number" value="0"></label>
 <label>後余白(秒)<input id="padAfter" type="number" value="0"></label>
 </div>
 
 <div class="card">
-<h3>課題追加</h3>
-<input id="composer" type="text" placeholder="作曲者">
-<input id="title" type="text" placeholder="曲名">
-<input id="url" type="text" placeholder="YouTube URL">
+<input id="composer" placeholder="作曲者">
+<input id="title" placeholder="曲名">
+<input id="url" placeholder="YouTube URL">
 <div class="row">
-<input id="start" type="text" placeholder="開始 mm:ss / hh:mm:ss">
-<input id="end" type="text" placeholder="終了 mm:ss / hh:mm:ss">
+<input id="start" placeholder="開始 mm:ss / hh:mm:ss">
+<input id="end" placeholder="終了 mm:ss / hh:mm:ss">
 <button onclick="addItem()">追加</button>
 </div>
 </div>
 
-<div class="card">
-<h3>課題一覧</h3>
-<div id="list"></div>
-</div>
+<div class="card"><div id="list"></div></div>
 
 <div class="card">
-<h3>再生</h3>
 <div id="now">未再生</div>
 <div class="row">
 <button onclick="prevItem()">◀ 前</button>
@@ -55,10 +55,7 @@ input[type=text]{width:100%;box-sizing:border-box}
 
 <script src="https://www.youtube.com/iframe_api"></script>
 <script>
-let items=[];
-let current=0;
-let queue=false;
-let player=null;
+let items=[]; let current=0; let queue=false; let player=null;
 
 function parseTime(t){
  const p=t.trim().split(":").map(Number);
@@ -76,88 +73,109 @@ function getVideoId(u){
  }catch(e){return "";}
 }
 
-function addItem(){
- items.push({
-   composer:composer.value,
-   title:title.value,
-   videoId:getVideoId(url.value),
-   start:parseTime(start.value),
-   end:parseTime(end.value),
-   startText:start.value,
-   endText:end.value
- });
- render();
+function saveState(){
+ localStorage.setItem("oep_v03",JSON.stringify({
+  items,padBefore:padBefore.value,padAfter:padAfter.value
+ }));
+}
+
+function loadState(){
+ if(location.hash.length>1){
+   try{
+    const d=JSON.parse(decodeURIComponent(escape(atob(location.hash.slice(1)))));
+    items=d.items||[];
+    padBefore.value=d.padBefore||0;
+    padAfter.value=d.padAfter||0;
+    return;
+   }catch(e){}
+ }
+ const raw=localStorage.getItem("oep_v03");
+ if(!raw) return;
+ try{
+   const d=JSON.parse(raw);
+   items=d.items||[];
+   padBefore.value=d.padBefore||0;
+   padAfter.value=d.padAfter||0;
+ }catch(e){}
 }
 
 function render(){
  list.innerHTML=items.map((x,i)=>`
  <div class="item">
- <b>${x.composer}</b><br>
- ${x.title}<br>
- ${x.startText} - ${x.endText}<br>
+ <b>${x.composer}</b><br>${x.title}<br>${x.startText} - ${x.endText}<br>
  <button onclick="current=${i};playCurrent()">再生</button>
+ <button onclick="editItem(${i})">編集</button>
+ <button onclick="moveUp(${i})">↑</button>
+ <button onclick="moveDown(${i})">↓</button>
+ <button onclick="removeItem(${i})">削除</button>
  </div>`).join("");
+ saveState();
 }
 
+function addItem(){
+ items.push({
+  composer:composer.value,title:title.value,url:url.value,
+  videoId:getVideoId(url.value),
+  start:parseTime(start.value),end:parseTime(end.value),
+  startText:start.value,endText:end.value
+ });
+ render();
+}
+
+function editItem(i){
+ const it=items[i];
+ const c=prompt("作曲者",it.composer); if(c===null)return;
+ const t=prompt("曲名",it.title); if(t===null)return;
+ const s=prompt("開始",it.startText); if(s===null)return;
+ const e=prompt("終了",it.endText); if(e===null)return;
+ it.composer=c; it.title=t;
+ it.startText=s; it.endText=e;
+ it.start=parseTime(s); it.end=parseTime(e);
+ render();
+}
+
+function removeItem(i){ items.splice(i,1); render(); }
+function moveUp(i){ if(i===0)return; [items[i-1],items[i]]=[items[i],items[i-1]]; render(); }
+function moveDown(i){ if(i>=items.length-1)return; [items[i+1],items[i]]=[items[i],items[i+1]]; render(); }
+
 function loadCurrent(){
- if(!player || !items[current]) return;
-
+ if(!player||!items[current]) return;
  const it=items[current];
- now.innerHTML=`${it.composer}<br>${it.title}`;
-
- const before=Number(padBefore.value||0);
- const after=Number(padAfter.value||0);
-
+ now.innerHTML=it.composer+"<br>"+it.title;
  player.loadVideoById({
-   videoId:it.videoId,
-   startSeconds:Math.max(0,it.start-before),
-   endSeconds:it.end+after
+  videoId:it.videoId,
+  startSeconds:Math.max(0,it.start-Number(padBefore.value||0)),
+  endSeconds:it.end+Number(padAfter.value||0)
  });
 }
 
-function playCurrent(){ queue=false; loadCurrent(); }
-function pauseCurrent(){ if(player) player.pauseVideo(); }
+function playCurrent(){queue=false;loadCurrent();}
+function pauseCurrent(){if(player)player.pauseVideo();}
+function prevItem(){if(current>0){current--;loadCurrent();}}
+function nextItem(){if(current<items.length-1){current++;loadCurrent();}}
+function playAll(){if(!items.length)return;current=0;queue=true;loadCurrent();}
 
-function prevItem(){
- if(current>0){
-   current--;
-   loadCurrent();
- }
-}
-
-function nextItem(){
- if(current<items.length-1){
-   current++;
-   loadCurrent();
- }
-}
-
-function playAll(){
- if(items.length===0) return;
- current=0;
- queue=true;
- loadCurrent();
+function generateShare(){
+ const payload=btoa(unescape(encodeURIComponent(JSON.stringify({
+   items,padBefore:padBefore.value,padAfter:padAfter.value
+ }))));
+ shareUrl.value=location.origin+location.pathname+"#"+payload;
 }
 
 function onYouTubeIframeAPIReady(){
  player=new YT.Player("player",{
-   height:"360",
-   width:"640",
-   playerVars:{playsinline:1},
-   events:{
-     onStateChange:function(e){
-       if(e.data===YT.PlayerState.ENDED && queue){
-         current++;
-         if(current<items.length){
-           loadCurrent();
-         }else{
-           queue=false;
-         }
-       }
-     }
+  height:"360",width:"640",playerVars:{playsinline:1},
+  events:{onStateChange:function(e){
+   if(e.data===YT.PlayerState.ENDED && queue){
+    current++;
+    if(current<items.length) loadCurrent(); else queue=false;
    }
+  }}
  });
 }
+
+loadState(); render();
+padBefore.onchange=saveState;
+padAfter.onchange=saveState;
 </script>
-</body>
-</html>
+</body></html>
